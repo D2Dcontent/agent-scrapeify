@@ -2,12 +2,13 @@ import os
 import httpx
 from .base import Channel
 
-RAPIDAPI_KEY = os.getenv("RAPIDAPI_KEY")
 RAPIDAPI_HOST = "twitter-aio.p.rapidapi.com"
-HEADERS = {
-    "x-rapidapi-key": RAPIDAPI_KEY,
-    "x-rapidapi-host": RAPIDAPI_HOST,
-}
+
+def _headers():
+    return {
+        "x-rapidapi-key": os.getenv("RAPIDAPI_KEY", ""),
+        "x-rapidapi-host": RAPIDAPI_HOST,
+    }
 
 
 class TwitterChannel(Channel):
@@ -21,7 +22,7 @@ class TwitterChannel(Channel):
         async with httpx.AsyncClient(timeout=30) as client:
             resp = await client.get(
                 f"https://{RAPIDAPI_HOST}/tweet/{tweet_id}",
-                headers=HEADERS,
+                headers=_headers(),
             )
             data = resp.json()
             tweet = data.get("data", {})
@@ -39,11 +40,16 @@ class TwitterChannel(Channel):
         async with httpx.AsyncClient(timeout=30) as client:
             resp = await client.get(
                 f"https://{RAPIDAPI_HOST}/search",
-                headers=HEADERS,
+                headers=_headers(),
                 params={"query": keyword, "count": str(limit)},
             )
             data = resp.json()
+            if not isinstance(data, dict):
+                return [{"platform": "twitter", "error": f"Unexpected response: {str(data)[:200]}"}]
             tweets = data.get("data", []) or []
+            if not tweets:
+                msg = data.get("message") or data.get("error") or "No results"
+                return [{"platform": "twitter", "error": msg}]
             return [
                 {
                     "platform": "twitter",

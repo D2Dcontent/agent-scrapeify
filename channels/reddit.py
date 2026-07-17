@@ -22,16 +22,22 @@ class RedditChannel(Channel):
             }
 
     async def search(self, keyword: str, limit: int = 5) -> list[dict]:
-        # Search Reddit via Jina Reader + DuckDuckGo (no API key needed)
-        query = keyword.replace(" ", "+") + "+site:reddit.com"
-        search_url = f"https://r.jina.ai/https://duckduckgo.com/?q={query}&ia=web"
+        # Search Reddit via its JSON search API
+        search_url = "https://www.reddit.com/search.json"
         async with httpx.AsyncClient(timeout=30, headers=HEADERS) as client:
-            resp = await client.get(search_url)
-            return [
-                {
+            resp = await client.get(search_url, params={"q": keyword, "limit": limit, "type": "link"})
+            data = resp.json()
+            posts = data.get("data", {}).get("children", [])
+            results = []
+            for p in posts[:limit]:
+                d = p.get("data", {})
+                results.append({
                     "platform": "reddit",
-                    "keyword": keyword,
-                    "content": resp.text[:3000],
-                    "note": "Reddit search results via DuckDuckGo + Jina Reader",
-                }
-            ]
+                    "title": d.get("title"),
+                    "body": d.get("selftext", "")[:500] or d.get("url", ""),
+                    "url": f"https://reddit.com{d.get('permalink', '')}",
+                    "subreddit": d.get("subreddit"),
+                    "score": d.get("score"),
+                    "num_comments": d.get("num_comments"),
+                })
+            return results
