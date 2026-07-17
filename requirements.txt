@@ -1,0 +1,7 @@
+fastapi
+uvicorn
+httpx
+yt-dlp
+praw
+beautifulsoup4
+python-dotenv
