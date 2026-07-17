@@ -46,18 +46,37 @@ class TwitterChannel(Channel):
             data = resp.json()
             if not isinstance(data, dict):
                 return [{"platform": "twitter", "error": f"Unexpected response: {str(data)[:200]}"}]
-            tweets = data.get("data", []) or []
-            if not tweets:
-                msg = data.get("message") or data.get("error") or "No results"
-                return [{"platform": "twitter", "error": msg}]
-            return [
-                {
-                    "platform": "twitter",
-                    "text": t.get("text"),
-                    "tweet_id": t.get("id"),
-                    "url": f"https://twitter.com/i/web/status/{t.get('id')}",
-                    "likes": t.get("public_metrics", {}).get("like_count"),
-                    "retweets": t.get("public_metrics", {}).get("retweet_count"),
-                }
-                for t in tweets
-            ]
+
+            # Extract tweets from nested entries structure
+            results = []
+            try:
+                top = data.get("entries", []) or []
+                for section in top:
+                    for entry in section.get("entries", []):
+                        content = entry.get("content", {})
+                        item_content = content.get("itemContent", {}) or content.get("content", {}).get("itemContent", {})
+                        tweet_results = item_content.get("tweet_results", {})
+                        result = tweet_results.get("result", {})
+                        legacy = result.get("legacy", {})
+                        if not legacy:
+                            continue
+                        tweet_id = legacy.get("id_str") or result.get("rest_id", "")
+                        user = result.get("core", {}).get("user_results", {}).get("result", {}).get("legacy", {})
+                        results.append({
+                            "platform": "twitter",
+                            "text": legacy.get("full_text", "")[:280],
+                            "username": user.get("screen_name"),
+                            "url": f"https://twitter.com/i/web/status/{tweet_id}" if tweet_id else "",
+                            "likes": legacy.get("favorite_count"),
+                            "retweets": legacy.get("retweet_count"),
+                        })
+                        if len(results) >= limit:
+                            break
+                    if len(results) >= limit:
+                        break
+            except Exception as e:
+                return [{"platform": "twitter", "error": f"Parse error: {str(e)[:200]}"}]
+
+            if not results:
+                return [{"platform": "twitter", "error": f"No tweets found. Raw keys: {list(data.keys())}"}]
+            return results
