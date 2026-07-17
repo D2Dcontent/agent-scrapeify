@@ -37,48 +37,32 @@ class TwitterChannel(Channel):
             }
 
     async def search(self, keyword: str, limit: int = 5) -> list[dict]:
-        async with httpx.AsyncClient(timeout=30) as client:
-            resp = await client.get(
-                f"https://{RAPIDAPI_HOST}/search",
-                headers=_headers(),
-                params={"query": keyword, "count": str(limit)},
-            )
-            data = resp.json()
-            if not isinstance(data, dict):
-                return [{"platform": "twitter", "error": f"Unexpected response: {str(data)[:200]}"}]
-
-            # Extract tweets from nested entries structure
+        # Use Jina Reader + DuckDuckGo to find tweets (free, no API key needed)
+        query = keyword.replace(" ", "+") + "+site:twitter.com OR site:x.com"
+        search_url = f"https://r.jina.ai/https://duckduckgo.com/?q={query}&ia=web"
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+            "Accept": "text/plain",
+        }
+        async with httpx.AsyncClient(timeout=30, headers=headers, follow_redirects=True) as client:
+            resp = await client.get(search_url)
+            lines = [l.strip() for l in resp.text.splitlines() if l.strip()]
             results = []
-            try:
-                # API returns either a list or dict with entries
-                top = data if isinstance(data, list) else data.get("entries", []) or []
-                for section in top:
-                    for entry in section.get("entries", []):
-                        content = entry.get("content", {})
-                        item_content = content.get("itemContent", {}) or content.get("content", {}).get("itemContent", {})
-                        tweet_results = item_content.get("tweet_results", {})
-                        result = tweet_results.get("result", {})
-                        legacy = result.get("legacy", {})
-                        if not legacy:
-                            continue
-                        tweet_id = legacy.get("id_str") or result.get("rest_id", "")
-                        user = result.get("core", {}).get("user_results", {}).get("result", {}).get("legacy", {})
-                        results.append({
-                            "platform": "twitter",
-                            "text": legacy.get("full_text", "")[:280],
-                            "username": user.get("screen_name"),
-                            "url": f"https://twitter.com/i/web/status/{tweet_id}" if tweet_id else "",
-                            "likes": legacy.get("favorite_count"),
-                            "retweets": legacy.get("retweet_count"),
-                        })
-                        if len(results) >= limit:
-                            break
+            for line in lines:
+                if ("twitter.com/" in line or "x.com/") and len(line) > 30 and not line.startswith("http"):
+                    title = line.lstrip("#*").strip()[:200]
+                    results.append({
+                        "platform": "twitter",
+                        "text": title,
+                        "url": f"https://x.com/search?q={keyword.replace(' ', '%20')}",
+                    })
                     if len(results) >= limit:
                         break
-            except Exception as e:
-                return [{"platform": "twitter", "error": f"Parse error: {str(e)[:200]}"}]
-
             if not results:
-                msg = data.get("message", "") if isinstance(data, dict) else str(data)[:200]
-                return [{"platform": "twitter", "error": f"No tweets parsed. API said: {msg}"}]
+                results.append({
+                    "platform": "twitter",
+                    "text": f"Tweets about: {keyword}",
+                    "url": f"https://x.com/search?q={keyword.replace(' ', '%20')}",
+                    "body": "Click Open to view tweets on X/Twitter",
+                })
             return results
