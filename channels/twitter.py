@@ -50,7 +50,8 @@ class TwitterChannel(Channel):
             # Extract tweets from nested entries structure
             results = []
             try:
-                top = data.get("entries", []) or []
+                # API returns either a list or dict with entries
+                top = data if isinstance(data, list) else data.get("entries", []) or []
                 for section in top:
                     for entry in section.get("entries", []):
                         content = entry.get("content", {})
@@ -78,5 +79,6 @@ class TwitterChannel(Channel):
                 return [{"platform": "twitter", "error": f"Parse error: {str(e)[:200]}"}]
 
             if not results:
-                return [{"platform": "twitter", "error": f"No tweets found. Raw keys: {list(data.keys())}"}]
+                msg = data.get("message", "") if isinstance(data, dict) else str(data)[:200]
+                return [{"platform": "twitter", "error": f"No tweets parsed. API said: {msg}"}]
             return results
